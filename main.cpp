@@ -4,6 +4,7 @@
 #include <QStandardPaths>
 #include <QLoggingCategory>
 #include "inventorysystem.h"
+#include <QIcon> // <-- 1. 包含 QIcon 头文件
 
 int main(int argc, char *argv[])
 {

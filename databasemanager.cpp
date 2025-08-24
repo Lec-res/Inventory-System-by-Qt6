@@ -13,7 +13,7 @@ DatabaseManager::~DatabaseManager() {
     }
 }
 
-bool DatabaseManager::initDatabase() {
+bool DatabaseManager::initDatabase(const DbConfig& config) {
     database = QSqlDatabase::addDatabase("QSQLITE");
     database.setDatabaseName("inventory.db");
 

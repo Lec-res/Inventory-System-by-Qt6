@@ -20,6 +20,8 @@
 #include "iteminfo.h"
 #include "itemformwidget.h"
 #include "databasemanager.h"
+#include "settingsmanager.h"
+#include "settingsdialog.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class InventorySystem; }
@@ -48,6 +50,7 @@ private slots:
     void onExportToCSV();
     void onShowStatistics();
 
+    void onShowSettings();
 private:
     void setupUI();
     void setupMenuBar();

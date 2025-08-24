@@ -6,11 +6,22 @@ InventorySystem::InventorySystem(QWidget *parent)
     categories << "电子产品" << "办公用品" << "家具" << "工具" << "消耗品" << "其他";
     statusOptions << "正常" << "维修中" << "已报废" << "借出" << "丢失";
 
-    if (!DatabaseManager::instance().initDatabase()) {
-        QMessageBox::critical(this, "数据库错误", "无法初始化数据库！");
-        return;
-    }
+    DbConfig config = SettingsManager::instance().loadDbConfig();
 
+    // 使用加载的配置初始化数据库
+    if (!DatabaseManager::instance().initDatabase(config)) {
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::critical(this, "数据库错误",
+                                      "无法连接到数据库！\n请检查配置文件(config.ini)或在设置中修改连接信息。",
+                                      QMessageBox::Ok | QMessageBox::Open);
+
+        if (reply == QMessageBox::Open) {
+            onShowSettings();
+        }
+
+        // 最好禁用所有UI控件，因为没有数据库无法工作
+        centralWidget->setEnabled(false);
+    }
     setupUI();
     setupMenuBar();
     setupStatusBar();
@@ -99,6 +110,12 @@ void InventorySystem::setupUI() {
 void InventorySystem::setupMenuBar() {
     auto mainMenuBar = menuBar();
     auto fileMenu = mainMenuBar->addMenu("文件");
+    auto settingsAction = new QAction("设置", this);
+
+    connect(settingsAction, &QAction::triggered, this, &InventorySystem::onShowSettings);
+    fileMenu->addAction(settingsAction);
+    fileMenu->addSeparator();
+
     auto exportAction = new QAction("导出到CSV", this);
     exportAction->setShortcut(QKeySequence::SaveAs);
     connect(exportAction, &QAction::triggered, this, &InventorySystem::onExportToCSV);
@@ -337,4 +354,9 @@ void InventorySystem::updateStatusBar() {
     StatisticsData stats = DatabaseManager::instance().getStatistics();
     itemCountLabel->setText(QString("总物品种类: %1").arg(stats.totalItemTypes));
     totalValueLabel->setText(QString("总估值: ¥%1").arg(QString::number(stats.totalValue, 'f', 2)));
+}
+
+void InventorySystem::onShowSettings() {
+    SettingsDialog dialog(this);
+    dialog.exec(); // exec() 会以模态方式显示对话框
 }

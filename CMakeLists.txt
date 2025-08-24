@@ -1,20 +1,10 @@
-cmake_minimum_required(VERSION 3.16)
-
-project(InventorySystem VERSION 2.0.0 LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# 查找Qt6组件
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql)
-
 # CMake 最低版本要求
 cmake_minimum_required(VERSION 3.16)
 
-# 项目名称和语言
+# 项目名称和语言 (注意：我们从这里移除了 RC)
 project(InventorySystem LANGUAGES CXX)
 
-# 设置C++标准为C++17，与.pro文件保持一致
+# 设置C++标准为C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -23,16 +13,18 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# 查找Qt6的依赖包。如果使用Qt5，请将Qt6改为Qt5
-# 需要Widgets（界面）和Sql（数据库）模块
+# 查找Qt6的依赖包
 find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
 
-# 定义项目的源文件和头文件
+# 定义项目的源文件、头文件和资源文件
 set(PROJECT_SOURCES
     main.cpp
     inventorysystem.cpp
     databasemanager.cpp
     itemformwidget.cpp
+    settingsmanager.cpp
+    settingsdialog.cpp
+    resources.qrc
 )
 
 set(PROJECT_HEADERS
@@ -40,6 +32,9 @@ set(PROJECT_HEADERS
     databasemanager.h
     itemformwidget.h
     iteminfo.h
+    settingsmanager.h
+    settingsdialog.h
+    dbconfig.h
 )
 
 # 添加可执行文件目标
@@ -47,6 +42,16 @@ add_executable(${PROJECT_NAME}
     ${PROJECT_SOURCES}
     ${PROJECT_HEADERS}
 )
+
+# 【关键修改】如果是在 Windows 平台上编译
+if(WIN32)
+    # 1. 将目标设置为 WIN32 可执行文件 (GUI程序，而非控制台程序)
+    set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE ON)
+
+    # 2. 以这种更安全的方式，将 Windows 资源文件附加到目标上
+    target_sources(${PROJECT_NAME} PRIVATE win_icon.rc)
+endif()
+
 
 # 链接Qt库到我们的项目
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -58,9 +63,3 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /Zc:__cplusplus /utf-8)
 endif()
-
-# 安装规则（可选），用于创建安装包
-install(TARGETS ${PROJECT_NAME}
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-)

@@ -8,6 +8,7 @@
 #include <QVariant>
 #include <QDebug>
 #include "iteminfo.h"
+#include "dbconfig.h" // <-- 1. 包含新的头文件
 
 // Struct to hold calculated statistics
 struct StatisticsData {
@@ -21,7 +22,7 @@ struct StatisticsData {
 class DatabaseManager {
 public:
     static DatabaseManager& instance();
-    bool initDatabase();
+    bool initDatabase(const DbConfig& config);
 
     bool addItem(const ItemInfo &item);
     bool updateItem(const ItemInfo &item);
