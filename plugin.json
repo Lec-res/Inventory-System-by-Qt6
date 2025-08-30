@@ -1,0 +1,31 @@
+[
+  {
+    "name": "笔记本电脑 Pro 16寸",
+    "category": "电子产品",
+    "quantity": 15,
+    "price": 8999.99
+  },
+  {
+    "name": "无线办公鼠标",
+    "category": "电子产品",
+    "quantity": 50,
+    "price": 129.50
+  },
+  {
+    "name": "A4打印纸 500张/包",
+    "category": "办公用品",
+    "quantity": 200,
+    "price": 25.00
+  },
+  {
+    "name": "人体工学办公椅",
+    "category": "家具",
+    "quantity": 10,
+    "price": 799.00
+  },
+  {
+    "name": "一个没有价格的物品",
+    "category": "其他",
+    "quantity": 1
+  }
+]

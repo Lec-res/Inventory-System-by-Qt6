@@ -1,0 +1,5 @@
+{
+  "Name": "JsonImportPlugin",
+  "Version": "1.0.0",
+  "Description": "从JSON文件批量导入物品数据"
+}

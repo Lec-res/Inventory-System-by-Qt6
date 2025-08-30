@@ -1,6 +1,9 @@
-<!DOCTYPE RCC>
-<RCC version="1.0">
-<qresource prefix="/">
-    <file alias="icon/app_icon.png">app_icon.png</file>
-</qresource>
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="app_icon.png">icons/app_icon.png</file>
+    </qresource>
+    <qresource prefix="/backgrounds">
+        <file alias="bg1.jpg">backgrounds/bg1.jpg</file>
+        <file alias="bg1.jpg">backgrounds/bg2.jpg</file>
+    </qresource>
 </RCC>
