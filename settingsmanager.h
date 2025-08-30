@@ -12,6 +12,9 @@ public:
     void saveDbConfig(const DbConfig& config);
     DbConfig loadDbConfig();
 
+    void saveCurrentBackground(const QString& bgPath);
+    QString loadCurrentBackground();
+
 private:
     SettingsManager();
     ~SettingsManager();

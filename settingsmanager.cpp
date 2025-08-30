@@ -49,3 +49,16 @@ DbConfig SettingsManager::loadDbConfig() {
     }
     return config;
 }
+
+// 新增函数实现
+void SettingsManager::saveCurrentBackground(const QString &bgPath)
+{
+    // 将背景路径保存到 "Appearance" 组下
+    settings->setValue("Appearance/background", bgPath);
+}
+
+QString SettingsManager::loadCurrentBackground()
+{
+    // 从 "Appearance" 组读取背景路径，如果不存在则返回空字符串
+    return settings->value("Appearance/background", "").toString();
+}

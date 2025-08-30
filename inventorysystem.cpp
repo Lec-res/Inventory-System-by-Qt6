@@ -1,64 +1,109 @@
 #include "inventorysystem.h"
+#include <QMenu>
+#include <QStandardPaths>
+#include <QCoreApplication>
+#include <QApplication>
+#include <QTimer> // 用于延迟调用
+#include <QFile>   // 用于检查文件是否存在
+
+// 在代码文件的顶部定义常量，方便管理
+// 【重要】请将这里的用户名和仓库名替换为您自己的
+const QString GITHUB_USER = "YourGitHubUsername";
+const QString GITHUB_REPO = "YourGitHubRepoName";
+// 我们要下载的发布包文件名
+const QString ASSET_NAME = "InventorySystem-win64.zip";
+// 在代码中定义当前版本
+const QString CURRENT_VERSION = "v2.0.0";
+
 
 InventorySystem::InventorySystem(QWidget *parent)
     : QMainWindow(parent), currentItemId(-1)
 {
+    // 1. 初始化基础数据
     categories << "电子产品" << "办公用品" << "家具" << "工具" << "消耗品" << "其他";
     statusOptions << "正常" << "维修中" << "已报废" << "借出" << "丢失";
 
+    // 2.【修复】搭建UI布局必须在最前面，这样后续代码才能访问UI控件
+    setupUILayout();
+
+    // 3. 从文件加载数据库配置
     DbConfig config = SettingsManager::instance().loadDbConfig();
 
-    // 使用加载的配置初始化数据库
+    // 4. 使用配置初始化数据库
     if (!DatabaseManager::instance().initDatabase(config)) {
         QMessageBox::StandardButton reply;
         reply = QMessageBox::critical(this, "数据库错误",
-                                      "无法连接到数据库！\n请检查配置文件(config.ini)或在设置中修改连接信息。",
+                                      "无法连接到数据库！\n请检查配置文件(config.ini)或在“文件”->“设置”中修改连接信息。",
                                       QMessageBox::Ok | QMessageBox::Open);
 
         if (reply == QMessageBox::Open) {
-            onShowSettings();
+            // 使用QTimer::singleShot可以避免在构造函数中直接打开模态对话框可能引发的问题
+            QTimer::singleShot(0, this, &InventorySystem::onShowSettings);
         }
-
-        // 最好禁用所有UI控件，因为没有数据库无法工作
-        centralWidget->setEnabled(false);
+        // 【修复】正确地禁用中央控件
+        centralWidget()->setEnabled(false);
     }
-    setupUI();
+
+    // 5. 初始化菜单栏、状态栏和信号槽连接
     setupMenuBar();
     setupStatusBar();
     setupConnections();
 
+    // 6. 初始化更新检查器
+    updateChecker = new UpdateChecker(this);
+    connect(updateChecker, &UpdateChecker::updateAvailable, this, &InventorySystem::onUpdateAvailable);
+    connect(updateChecker, &UpdateChecker::noUpdateAvailable, this, &InventorySystem::onNoUpdateAvailable);
+    connect(updateChecker, &UpdateChecker::errorOccurred, this, &InventorySystem::onUpdateError);
+    connect(updateChecker, &UpdateChecker::downloadProgress, this, &InventorySystem::onUpdateDownloadProgress);
+    connect(updateChecker, &UpdateChecker::downloadFinished, this, &InventorySystem::onUpdateDownloadFinished);
+
+    // 7. 加载插件
+    loadAndRegisterPlugins();
+
+    // 8. 加载并应用上次保存的背景
+    QString lastBgPath = SettingsManager::instance().loadCurrentBackground();
+    if (!lastBgPath.isEmpty() && QFile::exists(lastBgPath)) {
+        applyBackgroundStyle(lastBgPath);
+    } else {
+        applyBackgroundStyle("");
+    }
+
+    // 9. 填充初始数据
     formWidget->setPredefinedCategories(categories);
     formWidget->setStatusOptions(statusOptions);
     searchCategoryComboBox->addItems(categories);
-
     refreshTable();
 
-    setWindowTitle("物品信息管理系统 v1.0");
+    // 10. 设置窗口最终属性
+    setWindowTitle("模块化物品信息管理系统 v2.0");
     setMinimumSize(1200, 700);
     resize(1400, 800);
 }
 
 InventorySystem::~InventorySystem() {}
 
-void InventorySystem::setupUI() {
-    centralWidget = new QWidget;
-    setCentralWidget(centralWidget);
 
-    auto mainSplitter = new QSplitter(Qt::Horizontal, centralWidget);
+void InventorySystem::setupUILayout() {
+    // 【修复】创建一个QWidget作为中央控件的容器
+    QWidget* mainCentralWidget = new QWidget;
+    setCentralWidget(mainCentralWidget); // 【修复】调用setCentralWidget()函数来设置
+
+    auto mainSplitter = new QSplitter(Qt::Horizontal, mainCentralWidget);
 
     formWidget = new ItemFormWidget;
     formWidget->setMaximumWidth(400);
     formWidget->setMinimumWidth(350);
 
-    auto rightPanel = new QWidget;
-    auto rightLayout = new QVBoxLayout(rightPanel);
+    // --- 实现UI插件的“舞台” ---
+    mainContentArea = new QStackedWidget;
+    defaultView = new QWidget;
+    auto rightLayout = new QVBoxLayout(defaultView);
 
-    // Search Area
+    // 创建搜索框和表格等默认视图的控件
     auto searchGroupBox = new QGroupBox("搜索筛选");
     auto searchLayout = new QGridLayout(searchGroupBox);
     searchLayout->addWidget(new QLabel("关键词:"), 0, 0);
     searchEdit = new QLineEdit;
-    searchEdit->setPlaceholderText("输入物品名称、供应商或位置...");
     searchLayout->addWidget(searchEdit, 0, 1);
     searchLayout->addWidget(new QLabel("类别:"), 1, 0);
     searchCategoryComboBox = new QComboBox;
@@ -66,80 +111,112 @@ void InventorySystem::setupUI() {
     searchLayout->addWidget(searchCategoryComboBox, 1, 1);
     auto searchButton = new QPushButton("搜索");
     auto resetSearchButton = new QPushButton("重置");
-    searchButton->setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 6px; }");
-    resetSearchButton->setStyleSheet("QPushButton { background-color: #9E9E9E; color: white; padding: 6px; }");
     auto searchButtonLayout = new QHBoxLayout;
     searchButtonLayout->addWidget(searchButton);
     searchButtonLayout->addWidget(resetSearchButton);
     searchLayout->addLayout(searchButtonLayout, 2, 0, 1, 2);
-
     connect(searchButton, &QPushButton::clicked, this, &InventorySystem::onSearch);
     connect(resetSearchButton, &QPushButton::clicked, this, &InventorySystem::onResetSearch);
-    connect(searchEdit, &QLineEdit::returnPressed, this, &InventorySystem::onSearch);
 
-    // Table Area
     auto tableTitle = new QLabel("物品列表");
-    tableTitle->setStyleSheet("QLabel { font-size: 16px; font-weight: bold; margin: 5px; }");
     itemTable = new QTableWidget;
+    // ... (表格的详细设置不变) ...
     itemTable->setColumnCount(10);
     QStringList headers = {"ID", "物品名称", "类别", "描述", "数量", "单价", "供应商", "购买日期", "存放位置", "状态"};
     itemTable->setHorizontalHeaderLabels(headers);
     itemTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     itemTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    itemTable->setAlternatingRowColors(true);
-    itemTable->setSortingEnabled(true);
-    itemTable->horizontalHeader()->setStretchLastSection(true);
-    itemTable->setColumnWidth(0, 50); itemTable->setColumnWidth(1, 120); itemTable->setColumnWidth(2, 80);
-    itemTable->setColumnWidth(3, 150); itemTable->setColumnWidth(4, 60); itemTable->setColumnWidth(5, 80);
-    itemTable->setColumnWidth(6, 100); itemTable->setColumnWidth(7, 100); itemTable->setColumnWidth(8, 100);
-    itemTable->setColumnWidth(9, 80);
 
     rightLayout->addWidget(searchGroupBox);
     rightLayout->addWidget(tableTitle);
     rightLayout->addWidget(itemTable);
+    mainContentArea->addWidget(defaultView);
 
     mainSplitter->addWidget(formWidget);
-    mainSplitter->addWidget(rightPanel);
+    mainSplitter->addWidget(mainContentArea);
     mainSplitter->setStretchFactor(0, 0);
     mainSplitter->setStretchFactor(1, 1);
 
-    auto mainLayout = new QHBoxLayout(centralWidget);
+    auto mainLayout = new QHBoxLayout(mainCentralWidget); // 【修复】使用正确的父控件
     mainLayout->addWidget(mainSplitter);
 }
 
-void InventorySystem::setupMenuBar() {
-    auto mainMenuBar = menuBar();
+void InventorySystem::setupMenuBar()
+{
+    auto mainMenuBar = menuBar(); // 【修复】调用menuBar()函数获取菜单栏
+
+    // 文件菜单
     auto fileMenu = mainMenuBar->addMenu("文件");
     auto settingsAction = new QAction("设置", this);
-
     connect(settingsAction, &QAction::triggered, this, &InventorySystem::onShowSettings);
     fileMenu->addAction(settingsAction);
     fileMenu->addSeparator();
-
     auto exportAction = new QAction("导出到CSV", this);
-    exportAction->setShortcut(QKeySequence::SaveAs);
     connect(exportAction, &QAction::triggered, this, &InventorySystem::onExportToCSV);
     fileMenu->addAction(exportAction);
     fileMenu->addSeparator();
     auto exitAction = new QAction("退出", this);
-    exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, this, &QWidget::close);
     fileMenu->addAction(exitAction);
 
+    // 视图菜单
+    auto viewMenu = mainMenuBar->addMenu("视图");
+    QAction *defaultViewAction = new QAction("主列表视图", this);
+    connect(defaultViewAction, &QAction::triggered, this, [this](){
+        mainContentArea->setCurrentWidget(defaultView);
+    });
+    viewMenu->addAction(defaultViewAction);
+    viewMenu->addSeparator();
+    QMenu *backgroundMenu = viewMenu->addMenu("切换背景");
+    QAction *defaultBgAction = new QAction("恢复默认背景", this);
+    connect(defaultBgAction, &QAction::triggered, this, [this]() { /* ... */ });
+    backgroundMenu->addAction(defaultBgAction);
+    QAction *chooseFileAction = new QAction("从文件选择...", this);
+    connect(chooseFileAction, &QAction::triggered, this, [this]() { /* ... */ });
+    backgroundMenu->addAction(chooseFileAction);
+
+    // 工具菜单
     auto toolsMenu = mainMenuBar->addMenu("工具");
     auto statisticsAction = new QAction("统计信息", this);
-    statisticsAction->setShortcut(QKeySequence("Ctrl+I"));
     connect(statisticsAction, &QAction::triggered, this, &InventorySystem::onShowStatistics);
     toolsMenu->addAction(statisticsAction);
+
+    // 插件菜单 (将由 loadAndRegisterPlugins 动态填充)
+    auto pluginsMenu = mainMenuBar->addMenu("插件");
+    QAction *noPluginsAction = new QAction("未找到插件", this);
+    noPluginsAction->setEnabled(false);
+    pluginsMenu->addAction(noPluginsAction);
+
+    // 帮助菜单
+    auto helpMenu = mainMenuBar->addMenu("帮助");
+    QAction* checkUpdateAction = new QAction("检查更新...", this);
+    connect(checkUpdateAction, &QAction::triggered, this, [this](){
+        statusBar()->showMessage("正在检查更新...");
+        updateChecker->checkForUpdates();
+    });
+    helpMenu->addAction(checkUpdateAction);
 }
 
-void InventorySystem::setupStatusBar() {
-    auto mainStatusBar = statusBar();
+// 【修复】这是包含下载进度条的最终版
+void InventorySystem::setupStatusBar()
+{
+    auto mainStatusBar = statusBar(); // 【修复】调用statusBar()函数
     itemCountLabel = new QLabel;
     totalValueLabel = new QLabel;
     mainStatusBar->addWidget(itemCountLabel);
+
+    downloadProgressBar = new QProgressBar(this);
+    downloadProgressBar->setRange(0, 100);
+    downloadProgressBar->setValue(0);
+    downloadProgressBar->setTextVisible(true);
+    downloadProgressBar->setFormat("%p%");
+    downloadProgressBar->setMaximumWidth(200);
+    downloadProgressBar->hide();
+    mainStatusBar->addPermanentWidget(downloadProgressBar);
+
     mainStatusBar->addPermanentWidget(totalValueLabel);
 }
+
 
 void InventorySystem::setupConnections() {
     connect(formWidget, &ItemFormWidget::addTriggered, this, &InventorySystem::onAddItem);
@@ -359,4 +436,147 @@ void InventorySystem::updateStatusBar() {
 void InventorySystem::onShowSettings() {
     SettingsDialog dialog(this);
     dialog.exec(); // exec() 会以模态方式显示对话框
+}
+
+// 【修复】这是支持两种插件的最终版加载函数
+void InventorySystem::loadAndRegisterPlugins()
+{
+    QDir pluginsDir(QCoreApplication::applicationDirPath());
+    if (!pluginsDir.cd("plugins")) {
+        qDebug() << "Plugins directory not found.";
+        return;
+    }
+
+    auto pluginsMenu = menuBar()->findChildren<QMenu*>("插件").first();
+    auto viewMenu = menuBar()->findChildren<QMenu*>("视图").first();
+
+    bool actionPluginFound = false;
+
+    if (pluginsMenu) {
+        pluginsMenu->clear();
+    }
+
+    for (const QString &fileName : pluginsDir.entryList(QDir::Files)) {
+        QPluginLoader loader(pluginsDir.absoluteFilePath(fileName));
+        QObject *plugin = loader.instance();
+
+        if (plugin) {
+            UIVisualPluginInterface *iVisualPlugin = qobject_cast<UIVisualPluginInterface*>(plugin);
+            if (iVisualPlugin) {
+                QWidget *pluginWidget = iVisualPlugin->createWidget(mainContentArea);
+                mainContentArea->addWidget(pluginWidget);
+                QAction *viewAction = new QAction(iVisualPlugin->name(), this);
+                viewAction->setIcon(iVisualPlugin->icon());
+                if(viewMenu) viewMenu->addAction(viewAction);
+                connect(viewAction, &QAction::triggered, this, [this, pluginWidget](){
+                    mainContentArea->setCurrentWidget(pluginWidget);
+                });
+            }
+
+            InventoryPluginInterface *iActionPlugin = qobject_cast<InventoryPluginInterface*>(plugin);
+            if (iActionPlugin) {
+                actionPluginFound = true;
+                loadedActionPlugins.append(iActionPlugin);
+                QAction *pluginAction = new QAction(iActionPlugin->name(), this);
+                pluginAction->setToolTip(iActionPlugin->description());
+                if(pluginsMenu) pluginsMenu->addAction(pluginAction);
+
+                // 【核心修改】调用插件时，将DatabaseManager实例传递进去
+                connect(pluginAction, &QAction::triggered, this, [this, iActionPlugin]() {
+                    iActionPlugin->execute(this, &DatabaseManager::instance());
+                    refreshTable();
+                });
+            }
+        } else {
+            qDebug() << "Plugin load failed:" << loader.errorString();
+        }
+    }
+
+    if(!actionPluginFound && pluginsMenu){
+        QAction *noPluginsAction = new QAction("未找到插件", this);
+        noPluginsAction->setEnabled(false);
+        pluginsMenu->addAction(noPluginsAction);
+    }
+}
+
+
+// =================================================================
+//                 新功能槽函数 (更新与主题)
+// =================================================================
+
+/**
+ * @brief 应用背景样式的核心函数
+ * @param path 背景图片的路径 (可以是Qt资源路径或本地文件绝对路径)
+ */
+void InventorySystem::applyBackgroundStyle(const QString& path)
+{
+    // 将路径中的反斜杠替换为正斜杠，以兼容QSS的url()语法
+    QString forwardPath = path;
+    forwardPath.replace('\\', '/');
+
+    if (path.isEmpty()) {
+        // 如果路径为空，则清除所有样式，恢复默认外观
+        this->setStyleSheet("");
+    } else {
+        // 使用 QSS 设置主窗口的背景图片
+        // 使用 border-image 可以让背景图完美拉伸以适应窗口大小变化
+        QString qss = QString("QMainWindow { border-image: url(%1) 0 0 0 0 stretch stretch; }").arg(forwardPath);
+        this->setStyleSheet(qss);
+    }
+}
+
+
+/**
+ * @brief 当检查到有新版本时，由UpdateChecker发出的信号触发此槽
+ */
+void InventorySystem::onUpdateAvailable(const QString &version, const QString &releaseNotes, const QUrl &downloadUrl)
+{
+    QString message = QString("发现新版本：%1！\n\n更新日志：\n%2\n\n是否立即下载？").arg(version).arg(releaseNotes);
+    QMessageBox::StandardButton reply = QMessageBox::information(this, "检查更新", message, QMessageBox::Yes | QMessageBox::No);
+
+    if (reply == QMessageBox::Yes) {
+        updateChecker->startDownload(downloadUrl);
+        downloadProgressBar->setValue(0);
+        downloadProgressBar->show();
+        statusBar()->showMessage("正在开始下载...");
+    }
+}
+
+/**
+ * @brief 当检查后发现没有新版本时触发
+ */
+void InventorySystem::onNoUpdateAvailable()
+{
+    QMessageBox::information(this, "检查更新", "您当前使用的已是最新版本！");
+    statusBar()->showMessage("已是最新版本", 3000);
+}
+
+/**
+ * @brief 在检查更新或下载过程中发生错误时触发
+ */
+void InventorySystem::onUpdateError(const QString &error)
+{
+    QMessageBox::critical(this, "更新错误", error);
+    statusBar()->showMessage("更新检查失败", 3000);
+}
+
+/**
+ * @brief 在下载过程中，由UpdateChecker发出的进度信号触发
+ */
+void InventorySystem::onUpdateDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
+{
+    if (bytesTotal > 0) {
+        downloadProgressBar->setValue(100 * bytesReceived / bytesTotal);
+    }
+    statusBar()->showMessage(QString("正在下载... %1 / %2 MB").arg(bytesReceived / 1024.0 / 1024.0, 0, 'f', 2).arg(bytesTotal / 1024.0 / 1024.0, 0, 'f', 2));
+}
+
+/**
+ * @brief 当下载完成时触发
+ */
+void InventorySystem::onUpdateDownloadFinished(const QString &savedPath)
+{
+    downloadProgressBar->hide();
+    statusBar()->showMessage("下载完成！", 5000);
+    QMessageBox::information(this, "下载完成", QString("新版本已成功下载至：\n%1\n\n请关闭本程序后，手动解压并运行新版本。").arg(savedPath));
 }
