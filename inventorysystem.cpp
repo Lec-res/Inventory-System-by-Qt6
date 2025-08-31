@@ -438,67 +438,90 @@ void InventorySystem::onShowSettings() {
     dialog.exec(); // exec() 会以模态方式显示对话框
 }
 
-// 【修复】这是支持两种插件的最终版加载函数
+/**
+ * @brief 在程序启动时，加载和注册所有插件
+ * @details 此函数会：
+ * 1. 查找程序目录下的 "plugins" 文件夹。
+ * 2. 遍历其中的所有 .dll/.so 文件，并尝试使用 QPluginLoader 加载。
+ * 3. 使用 qobject_cast 检查插件是否实现了 UIVisualPluginInterface (UI插件)。
+ * - 如果是，则创建其UI，并添加到“视图”菜单。
+ * 4. 使用 qobject_cast 检查插件是否实现了 InventoryPluginInterface (动作插件)。
+ * - 如果是，则将其信号连接到主窗口的槽，并添加到“插件”菜单。
+ */
 void InventorySystem::loadAndRegisterPlugins()
 {
+    // 1. 定位到插件文件夹
     QDir pluginsDir(QCoreApplication::applicationDirPath());
     if (!pluginsDir.cd("plugins")) {
-        qDebug() << "Plugins directory not found.";
+        qDebug() << "Plugins directory not found, skipping plugin load.";
         return;
     }
 
+    // 2. 获取菜单栏中的“插件”和“视图”菜单
     auto pluginsMenu = menuBar()->findChildren<QMenu*>("插件").first();
     auto viewMenu = menuBar()->findChildren<QMenu*>("视图").first();
 
+    // 3. 清理“插件”菜单的默认提示信息
     bool actionPluginFound = false;
-
     if (pluginsMenu) {
         pluginsMenu->clear();
     }
 
+    // 4. 遍历插件文件夹中的所有文件
     for (const QString &fileName : pluginsDir.entryList(QDir::Files)) {
         QPluginLoader loader(pluginsDir.absoluteFilePath(fileName));
-        QObject *plugin = loader.instance();
+        QObject *plugin = loader.instance(); // 尝试加载插件实例
 
         if (plugin) {
+            // 4a. 检查是否为 UI 插件
             UIVisualPluginInterface *iVisualPlugin = qobject_cast<UIVisualPluginInterface*>(plugin);
             if (iVisualPlugin) {
                 QWidget *pluginWidget = iVisualPlugin->createWidget(mainContentArea);
-                mainContentArea->addWidget(pluginWidget);
+                mainContentArea->addWidget(pluginWidget); // 将插件UI添加到“舞台”
+
+                // 在“视图”菜单中创建对应的切换动作
                 QAction *viewAction = new QAction(iVisualPlugin->name(), this);
                 viewAction->setIcon(iVisualPlugin->icon());
                 if(viewMenu) viewMenu->addAction(viewAction);
+
+                // 连接菜单动作，点击时切换到对应的插件UI
                 connect(viewAction, &QAction::triggered, this, [this, pluginWidget](){
                     mainContentArea->setCurrentWidget(pluginWidget);
                 });
             }
 
+            // 4b. 检查是否为动作插件
             InventoryPluginInterface *iActionPlugin = qobject_cast<InventoryPluginInterface*>(plugin);
             if (iActionPlugin) {
                 actionPluginFound = true;
                 loadedActionPlugins.append(iActionPlugin);
+
+                // 在“插件”菜单中创建对应的动作
                 QAction *pluginAction = new QAction(iActionPlugin->name(), this);
                 pluginAction->setToolTip(iActionPlugin->description());
                 if(pluginsMenu) pluginsMenu->addAction(pluginAction);
 
-                // 【核心修改】调用插件时，将DatabaseManager实例传递进去
+                // 【核心】将插件发出的“请求”信号，连接到主窗口处理该请求的槽函数
+                connect(iActionPlugin, &InventoryPluginInterface::requestAddItem,
+                        this, &InventorySystem::onPluginRequestAddItem);
+
+                // 将菜单动作的点击事件，连接到插件的 execute 函数
                 connect(pluginAction, &QAction::triggered, this, [this, iActionPlugin]() {
-                    iActionPlugin->execute(this, &DatabaseManager::instance());
-                    refreshTable();
+                    iActionPlugin->execute(this); // 调用插件，让它开始工作（例如弹出文件对话框）
                 });
             }
         } else {
-            qDebug() << "Plugin load failed:" << loader.errorString();
+            qDebug() << "Plugin load failed for file" << fileName << ":" << loader.errorString();
         }
     }
 
+    // 5. 如果遍历完所有插件后，一个动作插件都没找到，则恢复提示
     if(!actionPluginFound && pluginsMenu){
         QAction *noPluginsAction = new QAction("未找到插件", this);
         noPluginsAction->setEnabled(false);
         pluginsMenu->addAction(noPluginsAction);
     }
 }
-
 
 // =================================================================
 //                 新功能槽函数 (更新与主题)
@@ -579,4 +602,18 @@ void InventorySystem::onUpdateDownloadFinished(const QString &savedPath)
     downloadProgressBar->hide();
     statusBar()->showMessage("下载完成！", 5000);
     QMessageBox::information(this, "下载完成", QString("新版本已成功下载至：\n%1\n\n请关闭本程序后，手动解压并运行新版本。").arg(savedPath));
+}
+
+
+/// @brief 处理插件发出的添加物品请求
+void InventorySystem::onPluginRequestAddItem(const ItemInfo &item)
+{
+    if (DatabaseManager::instance().addItem(item)) {
+        // 可以在状态栏给出提示
+        statusBar()->showMessage("插件添加物品成功：" + item.name, 2000);
+    } else {
+        statusBar()->showMessage("插件添加物品失败：" + item.name, 2000);
+    }
+    // 每次处理完请求后刷新表格
+    refreshTable();
 }

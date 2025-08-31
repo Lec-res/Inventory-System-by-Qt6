@@ -58,6 +58,8 @@ private slots:
     void onUpdateError(const QString& error);
     void onUpdateDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
     void onUpdateDownloadFinished(const QString& savedPath);
+    /// 【新增】用于处理插件发出的添加物品请求的槽函数
+    void onPluginRequestAddItem(const ItemInfo& item);
 
 private:
     // --- 初始化函数 ---

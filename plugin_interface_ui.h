@@ -1,6 +1,7 @@
 #ifndef PLUGIN_INTERFACE_UI_H
 #define PLUGIN_INTERFACE_UI_H
 
+#include <QObject>
 #include <QString>
 #include <QIcon>
 #include <QWidget>

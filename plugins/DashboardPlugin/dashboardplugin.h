@@ -3,7 +3,7 @@
 
 #include <QObject>
 #include <QtPlugin>
-#include "../inventorysystem-formal/plugin_interface_ui.h" // 包含新的UI接口
+#include "plugin_interface_ui.h" // 确保包含的是重命名后的 UI 接口文件
 
 class DashboardPlugin : public QObject, public UIVisualPluginInterface
 {

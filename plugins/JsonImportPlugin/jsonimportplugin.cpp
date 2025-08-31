@@ -5,8 +5,7 @@
 #include <QJsonArray>
 #include <QMessageBox>
 #include <QDebug>
-#include "databasemanager.h" 
-#include "iteminfo.h"
+#include "iteminfo.h" // <-- 【修改】不再需要 databasemanager.h
 
 QString JsonImportPlugin::name() const
 {
@@ -18,14 +17,8 @@ QString JsonImportPlugin::description() const
     return "从一个 JSON 文件中读取物品数据并批量添加到数据库。";
 }
 
-// 【修改】execute 函数的定义和实现
-void JsonImportPlugin::execute(QMainWindow *parentWindow, DatabaseManager* dbManager)
+void JsonImportPlugin::execute(QMainWindow *parentWindow)
 {
-    if (!dbManager) {
-        QMessageBox::critical(parentWindow, "错误", "数据库管理器无效！");
-        return;
-    }
-
     QString filePath = QFileDialog::getOpenFileName(parentWindow, "选择 JSON 文件", "", "JSON Files (*.json)");
     if (filePath.isEmpty()) {
         return;
@@ -55,11 +48,12 @@ void JsonImportPlugin::execute(QMainWindow *parentWindow, DatabaseManager* dbMan
         item.quantity = obj["quantity"].toInt();
         item.price = obj["price"].toDouble();
         
-        // 【核心修改】使用主程序传递进来的 dbManager 指针
-        if (!item.name.isEmpty() && dbManager->addItem(item)) {
+        if (!item.name.isEmpty()) {
+            // 【核心修改】发出请求信号，而不是直接调用数据库函数
+            emit requestAddItem(item);
             successCount++;
         }
     }
 
-    QMessageBox::information(parentWindow, "导入完成", QString("成功导入 %1 条物品信息！").arg(successCount));
+    QMessageBox::information(parentWindow, "请求完成", QString("已发送 %1 条物品信息的添加请求！\n请在主界面查看结果。").arg(successCount));
 }
