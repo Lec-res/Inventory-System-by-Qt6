@@ -8,12 +8,12 @@
 
 // 在代码文件的顶部定义常量，方便管理
 // 【重要】请将这里的用户名和仓库名替换为您自己的
-const QString GITHUB_USER = "YourGitHubUsername";
-const QString GITHUB_REPO = "YourGitHubRepoName";
+const QString GITHUB_USER = "Lec-res";
+const QString GITHUB_REPO = "Inventory-system-by-Qt6";
 // 我们要下载的发布包文件名
-const QString ASSET_NAME = "InventorySystem-win64.zip";
+
 // 在代码中定义当前版本
-const QString CURRENT_VERSION = "v2.0.0";
+const QString CURRENT_VERSION = "v3.1.0";
 
 
 InventorySystem::InventorySystem(QWidget *parent)
@@ -75,7 +75,7 @@ InventorySystem::InventorySystem(QWidget *parent)
     refreshTable();
 
     // 10. 设置窗口最终属性
-    setWindowTitle("模块化物品信息管理系统 v2.0");
+    setWindowTitle("模块化物品信息管理系统 v3.0");
     setMinimumSize(1200, 700);
     resize(1400, 800);
 }
@@ -143,9 +143,9 @@ void InventorySystem::setupUILayout() {
 
 void InventorySystem::setupMenuBar()
 {
-    auto mainMenuBar = menuBar(); // 【修复】调用menuBar()函数获取菜单栏
+    auto mainMenuBar = menuBar();
 
-    // 文件菜单
+    // 文件菜单 (代码不变)
     auto fileMenu = mainMenuBar->addMenu("文件");
     auto settingsAction = new QAction("设置", this);
     connect(settingsAction, &QAction::triggered, this, &InventorySystem::onShowSettings);
@@ -160,34 +160,56 @@ void InventorySystem::setupMenuBar()
     fileMenu->addAction(exitAction);
 
     // 视图菜单
-    auto viewMenu = mainMenuBar->addMenu("视图");
+    m_viewMenu = mainMenuBar->addMenu("视图");
     QAction *defaultViewAction = new QAction("主列表视图", this);
     connect(defaultViewAction, &QAction::triggered, this, [this](){
         mainContentArea->setCurrentWidget(defaultView);
     });
-    viewMenu->addAction(defaultViewAction);
-    viewMenu->addSeparator();
-    QMenu *backgroundMenu = viewMenu->addMenu("切换背景");
+    m_viewMenu->addAction(defaultViewAction);
+    m_viewMenu->addSeparator();
+    QMenu *backgroundMenu = m_viewMenu->addMenu("切换背景");
+
+    // 【修改】为“恢复默认背景”动作实现功能
     QAction *defaultBgAction = new QAction("恢复默认背景", this);
-    connect(defaultBgAction, &QAction::triggered, this, [this]() { /* ... */ });
+    connect(defaultBgAction, &QAction::triggered, this, [this]() {
+        applyBackgroundStyle(""); // 传入空字符串来清除背景
+        SettingsManager::instance().saveCurrentBackground(""); // 保存空设置，表示使用默认背景
+    });
     backgroundMenu->addAction(defaultBgAction);
+
+    // 【修改】为“从文件选择”动作实现功能
     QAction *chooseFileAction = new QAction("从文件选择...", this);
-    connect(chooseFileAction, &QAction::triggered, this, [this]() { /* ... */ });
+    connect(chooseFileAction, &QAction::triggered, this, [this]() {
+        // 弹出文件选择对话框
+        QString filePath = QFileDialog::getOpenFileName(
+            this,                                     // 父窗口
+            "选择背景图片",                             // 对话框标题
+            QDir::homePath(),                         // 默认打开的目录
+            "图片文件 (*.png *.jpg *.jpeg *.bmp)"   // 文件类型过滤器
+            );
+
+        // 如果用户选择了文件（路径不为空）
+        if (!filePath.isEmpty()) {
+            applyBackgroundStyle(filePath);
+            // 将用户的选择保存到配置文件，以便下次启动时加载
+            SettingsManager::instance().saveCurrentBackground(filePath);
+        }
+    });
     backgroundMenu->addAction(chooseFileAction);
 
-    // 工具菜单
+    // 工具菜单 (代码不变)
     auto toolsMenu = mainMenuBar->addMenu("工具");
     auto statisticsAction = new QAction("统计信息", this);
     connect(statisticsAction, &QAction::triggered, this, &InventorySystem::onShowStatistics);
     toolsMenu->addAction(statisticsAction);
 
-    // 插件菜单 (将由 loadAndRegisterPlugins 动态填充)
-    auto pluginsMenu = mainMenuBar->addMenu("插件");
+    // 插件菜单 (代码不变)
+    m_pluginsMenu = mainMenuBar->addMenu("插件");
     QAction *noPluginsAction = new QAction("未找到插件", this);
     noPluginsAction->setEnabled(false);
-    pluginsMenu->addAction(noPluginsAction);
+    m_pluginsMenu->addAction(noPluginsAction);
 
-    // 帮助菜单
+    // 帮助菜单 (代码不变)
     auto helpMenu = mainMenuBar->addMenu("帮助");
     QAction* checkUpdateAction = new QAction("检查更新...", this);
     connect(checkUpdateAction, &QAction::triggered, this, [this](){
@@ -438,68 +460,91 @@ void InventorySystem::onShowSettings() {
     dialog.exec(); // exec() 会以模态方式显示对话框
 }
 
-// 【修复】这是支持两种插件的最终版加载函数
+/**
+ * @brief 在程序启动时，加载和注册所有插件
+ * @details 此函数会：
+ * 1. 查找程序目录下的 "plugins" 文件夹。
+ * 2. 遍历其中的所有 .dll/.so 文件，并尝试使用 QPluginLoader 加载。
+ * 3. 使用 qobject_cast 检查插件是否实现了 UIVisualPluginInterface (UI插件)。
+ * - 如果是，则创建其UI，并添加到“视图”菜单。
+ * 4. 使用 qobject_cast 检查插件是否实现了 InventoryPluginInterface (动作插件)。
+ * - 如果是，则将其信号连接到主窗口的槽，并添加到“插件”菜单。
+ */
 void InventorySystem::loadAndRegisterPlugins()
 {
+    // 1. 定位到插件文件夹
     QDir pluginsDir(QCoreApplication::applicationDirPath());
     if (!pluginsDir.cd("plugins")) {
-        qDebug() << "Plugins directory not found.";
+        qDebug() << "Plugins directory not found, skipping plugin load.";
         return;
     }
 
-    auto pluginsMenu = menuBar()->findChildren<QMenu*>("插件").first();
-    auto viewMenu = menuBar()->findChildren<QMenu*>("视图").first();
+    // 2. 【已移除】不再需要通过 findChildren 查找菜单
+    // auto pluginsMenu = menuBar()->findChildren<QMenu*>("插件").first();
+    // auto viewMenu = menuBar()->findChildren<QMenu*>("视图").first();
 
+    // 3. 清理“插件”菜单的默认提示信息
     bool actionPluginFound = false;
-
-    if (pluginsMenu) {
-        pluginsMenu->clear();
+    // 【修改】直接使用成员变量，并增加安全检查
+    if (m_pluginsMenu) {
+        m_pluginsMenu->clear();
     }
 
+    // 4. 遍历插件文件夹中的所有文件
     for (const QString &fileName : pluginsDir.entryList(QDir::Files)) {
         QPluginLoader loader(pluginsDir.absoluteFilePath(fileName));
         QObject *plugin = loader.instance();
 
         if (plugin) {
+            // 4a. 检查是否为 UI 插件
             UIVisualPluginInterface *iVisualPlugin = qobject_cast<UIVisualPluginInterface*>(plugin);
             if (iVisualPlugin) {
                 QWidget *pluginWidget = iVisualPlugin->createWidget(mainContentArea);
                 mainContentArea->addWidget(pluginWidget);
+
+                // 在“视图”菜单中创建对应的切换动作
                 QAction *viewAction = new QAction(iVisualPlugin->name(), this);
                 viewAction->setIcon(iVisualPlugin->icon());
-                if(viewMenu) viewMenu->addAction(viewAction);
+                if (m_viewMenu) m_viewMenu->addAction(viewAction); // <-- 【修改】使用 m_viewMenu
+
+                // 连接菜单动作，点击时切换到对应的插件UI
                 connect(viewAction, &QAction::triggered, this, [this, pluginWidget](){
                     mainContentArea->setCurrentWidget(pluginWidget);
                 });
             }
 
+            // 4b. 检查是否为动作插件
             InventoryPluginInterface *iActionPlugin = qobject_cast<InventoryPluginInterface*>(plugin);
             if (iActionPlugin) {
                 actionPluginFound = true;
                 loadedActionPlugins.append(iActionPlugin);
+
+                // 在“插件”菜单中创建对应的动作
                 QAction *pluginAction = new QAction(iActionPlugin->name(), this);
                 pluginAction->setToolTip(iActionPlugin->description());
-                if(pluginsMenu) pluginsMenu->addAction(pluginAction);
+                if (m_pluginsMenu) m_pluginsMenu->addAction(pluginAction); // <-- 【修改】使用 m_pluginsMenu
 
-                // 【核心修改】调用插件时，将DatabaseManager实例传递进去
+                // 【核心】将插件发出的“请求”信号，连接到主窗口处理该请求的槽函数
+                connect(iActionPlugin, &InventoryPluginInterface::requestAddItem,
+                        this, &InventorySystem::onPluginRequestAddItem);
+
+                // 将菜单动作的点击事件，连接到插件的 execute 函数
                 connect(pluginAction, &QAction::triggered, this, [this, iActionPlugin]() {
-                    iActionPlugin->execute(this, &DatabaseManager::instance());
-                    refreshTable();
+                    iActionPlugin->execute(this);
                 });
             }
         } else {
-            qDebug() << "Plugin load failed:" << loader.errorString();
+            qDebug() << "Plugin load failed for file" << fileName << ":" << loader.errorString();
         }
     }
 
-    if(!actionPluginFound && pluginsMenu){
+    // 5. 如果遍历完所有插件后，一个动作插件都没找到，则恢复提示
+    if(!actionPluginFound && m_pluginsMenu){ // <-- 【修改】使用 m_pluginsMenu
         QAction *noPluginsAction = new QAction("未找到插件", this);
         noPluginsAction->setEnabled(false);
-        pluginsMenu->addAction(noPluginsAction);
+        m_pluginsMenu->addAction(noPluginsAction);
     }
 }
-
-
 // =================================================================
 //                 新功能槽函数 (更新与主题)
 // =================================================================
@@ -579,4 +624,18 @@ void InventorySystem::onUpdateDownloadFinished(const QString &savedPath)
     downloadProgressBar->hide();
     statusBar()->showMessage("下载完成！", 5000);
     QMessageBox::information(this, "下载完成", QString("新版本已成功下载至：\n%1\n\n请关闭本程序后，手动解压并运行新版本。").arg(savedPath));
+}
+
+
+/// @brief 处理插件发出的添加物品请求
+void InventorySystem::onPluginRequestAddItem(const ItemInfo &item)
+{
+    if (DatabaseManager::instance().addItem(item)) {
+        // 可以在状态栏给出提示
+        statusBar()->showMessage("插件添加物品成功：" + item.name, 2000);
+    } else {
+        statusBar()->showMessage("插件添加物品失败：" + item.name, 2000);
+    }
+    // 每次处理完请求后刷新表格
+    refreshTable();
 }

@@ -19,6 +19,7 @@
 #include <QStackedWidget>
 #include <QPluginLoader>
 #include <QProgressBar>
+#include <QMenu>
 
 #include "iteminfo.h"
 #include "itemformwidget.h"
@@ -58,6 +59,8 @@ private slots:
     void onUpdateError(const QString& error);
     void onUpdateDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
     void onUpdateDownloadFinished(const QString& savedPath);
+    /// 【新增】用于处理插件发出的添加物品请求的槽函数
+    void onPluginRequestAddItem(const ItemInfo& item);
 
 private:
     // --- 初始化函数 ---
@@ -91,6 +94,8 @@ private:
     QLabel *itemCountLabel;
     QLabel *totalValueLabel;
     QProgressBar* downloadProgressBar;
+    QMenu* m_pluginsMenu; // <-- 【新增】插件菜单的成员变量指针
+    QMenu* m_viewMenu;    // <-- 【新增】视图菜单的成员变量指针
 
     // --- 功能模块指针 ---
     UpdateChecker* updateChecker;
