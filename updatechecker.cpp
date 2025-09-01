@@ -7,13 +7,13 @@
 #include <QMessageBox>
 
 // 【重要】请将这里的用户名和仓库名替换为您自己的
-const QString GITHUB_USER = "YourGitHubUsername";
-const QString GITHUB_REPO = "YourGitHubRepoName";
-// 我们要下载的发布包文件名
-const QString ASSET_NAME = "InventorySystem-win64.zip";
+const QString GITHUB_USER = "Lec-res";
+const QString GITHUB_REPO = "Inventory-system-by-Qt6";
+
+
 
 // 在代码中定义当前版本
-const QString CURRENT_VERSION = "v1.0.0";
+const QString CURRENT_VERSION = "v3.1.0";
 
 
 UpdateChecker::UpdateChecker(QObject *parent) : QObject(parent)
@@ -37,10 +37,8 @@ void UpdateChecker::onCheckFinished(QNetworkReply *reply)
         reply->deleteLater();
         return;
     }
-
     QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
     QJsonObject releaseInfo = doc.object();
-
     QString latestVersion = releaseInfo["tag_name"].toString();
     if (latestVersion.isEmpty()) {
         emit errorOccurred("无法解析版本信息，请检查GitHub仓库和Release设置。");
@@ -53,8 +51,13 @@ void UpdateChecker::onCheckFinished(QNetworkReply *reply)
         QString releaseNotes = releaseInfo["body"].toString();
         QJsonArray assets = releaseInfo["assets"].toArray();
         QUrl downloadUrl;
+
+        // 【修改】根据版本号动态构建文件名
+        QString expectedAssetName = QString("Inventory-System-%1.zip").arg(latestVersion);
+
         for (const QJsonValue& asset : assets) {
-            if (asset.toObject()["name"].toString() == ASSET_NAME) {
+            QString assetName = asset.toObject()["name"].toString();
+            if (assetName == expectedAssetName) {
                 downloadUrl = QUrl(asset.toObject()["browser_download_url"].toString());
                 break;
             }
@@ -63,7 +66,7 @@ void UpdateChecker::onCheckFinished(QNetworkReply *reply)
         if (downloadUrl.isValid()) {
             emit updateAvailable(latestVersion, releaseNotes, downloadUrl);
         } else {
-            emit errorOccurred("找到新版本，但未找到指定的下载文件：" + ASSET_NAME);
+            emit errorOccurred("找到新版本，但未找到指定的下载文件：" + expectedAssetName);
         }
     } else {
         emit noUpdateAvailable();
@@ -88,7 +91,15 @@ void UpdateChecker::onDownloadFinished()
         emit errorOccurred("下载失败: " + currentDownloadReply->errorString());
     } else {
         QString downloadDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-        QString savePath = downloadDir + "/" + ASSET_NAME;
+
+        // 【修改】从回复的URL中获取实际文件名，或者使用动态生成的名称
+        QString fileName = currentDownloadReply->url().fileName();
+        if (fileName.isEmpty()) {
+            // 如果无法从URL获取文件名，则使用默认格式
+            fileName = QString("Inventory-system-latest.zip");
+        }
+
+        QString savePath = downloadDir + "/" + fileName;
         QFile file(savePath);
         if (file.open(QIODevice::WriteOnly)) {
             file.write(currentDownloadReply->readAll());

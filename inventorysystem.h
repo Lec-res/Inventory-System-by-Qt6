@@ -19,6 +19,7 @@
 #include <QStackedWidget>
 #include <QPluginLoader>
 #include <QProgressBar>
+#include <QMenu>
 
 #include "iteminfo.h"
 #include "itemformwidget.h"
@@ -93,6 +94,8 @@ private:
     QLabel *itemCountLabel;
     QLabel *totalValueLabel;
     QProgressBar* downloadProgressBar;
+    QMenu* m_pluginsMenu; // <-- 【新增】插件菜单的成员变量指针
+    QMenu* m_viewMenu;    // <-- 【新增】视图菜单的成员变量指针
 
     // --- 功能模块指针 ---
     UpdateChecker* updateChecker;
